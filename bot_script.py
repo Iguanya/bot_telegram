@@ -37,22 +37,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Welcome! Please send an image.")
 
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add a username to the forward list."""
-    username = context.args[0] if context.args else None
-    if not username:
+    """Add a user with their chat ID to the forward list."""
+    if not context.args:
         await update.message.reply_text("Please provide a username. Example: /add_user username")
         return
 
-    if username.startswith("@"):
-        username = username[1:]  # Remove '@'
+    username = context.args[0]
+    chat_id = update.message.chat.id  # Save the chat ID
 
-    user_id = update.message.chat.id  # Get user's chat ID
-    # Store user's chat ID in FORWARD_LIST
-    FORWARD_LIST[username] = user_id
-
-    await update.message.reply_text(f"Added @{username} to the forward list.")
-    logger.info(f"Added @{username} with chat ID {user_id} to the forward list.")
-
+    if username in FORWARD_LIST:
+        await update.message.reply_text(f"User @{username} is already in the forward list.")
+    else:
+        FORWARD_LIST[username] = chat_id
+        await update.message.reply_text(f"Added @{username} with chat ID {chat_id} to the forward list.")
+        logger.info(f"Added @{username} (chat ID: {chat_id}) to the forward list.")
+        
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the forward list with usernames and their chat IDs."""
     if FORWARD_LIST:
@@ -90,25 +89,19 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         sender = update.message.chat.username or update.message.chat.id
         logger.info(f"Received an image from {sender}")
 
-        # Process the image to get details
-        photos = update.message.photo
-        largest_photo = max(photos, key=lambda p: p.file_size)
-
+        # Get the largest version of the image
+        largest_photo = max(update.message.photo, key=lambda p: p.file_size)
         f_id = largest_photo.file_id
         caption = f"file_id: {f_id}"
 
-        # Send back the image with details to the original sender
-        try:
-            await context.bot.send_photo(
-                chat_id=update.message.chat_id,
-                photo=InputFile(f_id),
-                caption=caption
-            )
-            logger.info(f"Sent image back with details to chat {update.message.chat_id}.")
-        except TelegramError as e:
-            logger.error(f"Failed to send image back: {e}")
+        # Send back the image details to the sender
+        await context.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=f_id,
+            caption=f"file_id: {f_id}\nImage received!"
+        )
 
-        # Forward image to users in FORWARD_LIST using their stored chat IDs
+        # Forward the image to all users in the forward list
         for username, user_id in FORWARD_LIST.items():
             try:
                 await context.bot.send_photo(
@@ -117,8 +110,9 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     caption=f"Forwarded from @{sender}"
                 )
                 logger.info(f"Forwarded image to @{username}")
-            except TelegramError as e:
+            except Exception as e:
                 logger.error(f"Failed to forward to @{username}: {e}")
+
 
 async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually send an image to all users in the forward list."""
@@ -126,27 +120,27 @@ async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("The forward list is empty.")
         return
 
-    # Check if an argument (image file ID or URL) is provided
+    # Check if a file ID or URL is provided
     if not context.args:
-        await update.message.reply_text("Please provide a file ID or URL of the image. Example: /send_image <file_id_or_url>")
+        await update.message.reply_text("Please provide a file ID or URL. Example: /send_image <file_id_or_url>")
         return
 
-    image = context.args[0]  # First argument is the image file ID or URL
+    image = context.args[0]  # The file ID or URL
     caption = " ".join(context.args[1:]) if len(context.args) > 1 else "Manually sent image"
 
-    for username in FORWARD_LIST.keys():
+    for username, user_id in FORWARD_LIST.items():
         try:
-            user_id = FORWARD_LIST[username]  # Get user ID from FORWARD_LIST
             await context.bot.send_photo(
                 chat_id=user_id,
                 photo=image,
-                caption=f"{caption}\n\nSent by: @{update.message.chat.username or update.message.chat.id}"
+                caption=f"{caption}\n\nSent by @{update.message.chat.username or update.message.chat.id}"
             )
             logger.info(f"Manually sent image to @{username}")
         except Exception as e:
             logger.error(f"Failed to send image to @{username}: {e}")
-    
-    await update.message.reply_text("Image has been sent to the forward list.")
+
+    await update.message.reply_text("Image has been sent to all users in the forward list.")
+
 
 # Function to set up bot commands
 async def main() -> None:
