@@ -91,7 +91,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await set_bot_commands(context.application, user_id=user_id, is_authorized=False)
         await update.message.reply_text(
-            "Welcome! We are preparing your images."
+            "Welcome! We will deliver the Slips shortly."
         )
 
     logger.info(f"User {username} (ID: {user_id}) started the bot.")
