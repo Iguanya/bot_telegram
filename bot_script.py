@@ -3,16 +3,15 @@ from telegram import BotCommand, Update, InputFile, BotCommandScopeChat, BotComm
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.error import TelegramError, RetryAfter, TimedOut
 from telegram.request import HTTPXRequest
+from typing import Dict, Any
 import json
 
 # Replace with your bot token
 BOT_TOKEN = '7425198155:AAHdA02heNdgiXIQ5oyV5RZhlA1THX1m44I'
 
-# Dictionary to store Telegram usernames and their corresponding chat IDs
-FORWARD_LIST = {}
-
-# A dictionary to store user details in memory
-USER_DATA = {}  
+# Assuming these are globally defined
+USER_DATA: Dict[int, Dict[str, Any]] = {}
+FORWARD_LIST: Dict[str, int] = {}
 
 # Replace these with the user IDs of authorized users
 AUTHORIZED_USERS = [1704356941, 7484493290]  # Replace with actual Telegram user IDs
@@ -31,24 +30,12 @@ def is_authorized(user_id: int) -> bool:
     """Check if the user is authorized."""
     return user_id in AUTHORIZED_USERS
 
-async def safe_send_photo(bot, chat_id, photo, caption):
-    """Safely send a photo with retries."""
-    retries = 3
-    for attempt in range(retries):
-        try:
-            await bot.send_photo(chat_id=chat_id, photo=photo, caption=caption)
-            return  # Exit on success
-        except RetryAfter as e:
-            wait_time = e.retry_after
-            logger.warning(f"Rate limited. Retrying in {wait_time} seconds...")
-            await asyncio.sleep(wait_time)
-        except TimedOut:
-            logger.error("Timed out while sending photo. Retrying...")
-            await asyncio.sleep(5)  # Brief wait before retry
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            break  # Exit loop on unexpected error
-    logger.error(f"Failed to send photo to {chat_id} after {retries} attempts.")
+async def safe_send_photo(bot, chat_id, file_id, caption=""):
+    try:
+        await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
+    except Exception as e:
+        logger.error(f"Failed to send photo to {chat_id}: {e}")
+
 
 async def set_bot_commands(application, user_id=None, is_authorized=False) -> None:
     """Set up bot commands based on user roles."""
@@ -75,13 +62,18 @@ async def set_bot_commands(application, user_id=None, is_authorized=False) -> No
     await application.bot.set_my_commands(commands)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a welcome message and dynamically set commands."""
+    """Send a welcome message, dynamically set commands, and add users to forward list."""
     user_id = update.effective_user.id
     username = update.effective_user.username or "Unknown"
 
     # Save username and chat ID
     USER_DATA[user_id] = {"username": username, "chat_id": update.effective_chat.id}
     logger.info(f"Saved user: {username} (ID: {user_id}, Chat ID: {update.effective_chat.id})")
+
+    # Add to the forward list
+    if username not in FORWARD_LIST:
+        FORWARD_LIST[username] = update.effective_chat.id
+        logger.info(f"User @{username} (Chat ID: {update.effective_chat.id}) added to forward list.")
 
     if user_id in AUTHORIZED_USERS:
         await set_bot_commands(context.application, user_id=user_id, is_authorized=True)
@@ -94,8 +86,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Welcome! We will deliver the Slips shortly."
         )
 
-    logger.info(f"User {username} (ID: {user_id}) started the bot.")
-
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Add a username to the forward list."""
     if not context.args:
@@ -103,12 +93,12 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     username = context.args[0]
-    
+
     if username.startswith("@"):
         username = username[1:]  # Remove '@' for internal storage
 
     user_id = update.message.chat.id  # Get user's chat ID
-    
+
     # Store user's chat ID in USER_DATA for future reference
     USER_DATA[user_id] = {"username": username, "chat_id": user_id}
 
@@ -119,7 +109,7 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         FORWARD_LIST[username] = user_id  # Store in FORWARD_LIST
         await update.message.reply_text(f"Added @{username} (Chat ID: {user_id}) to the forward list.")
         logger.info(f"Added @{username} (Chat ID: {user_id}) to the forward list.")
-
+        
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the forward list with usernames and their chat IDs."""
     if FORWARD_LIST:
@@ -152,8 +142,9 @@ async def clear_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("Cleared the forward list.")
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle images sent to the bot and forward them."""
+    """Handle images sent to the bot and forward them automatically for authorized users."""
     user_id = update.effective_user.id
+    username = update.effective_user.username or "Unknown"
 
     # Authorization check
     if not is_authorized(user_id):
@@ -167,12 +158,22 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         file_id = largest_photo.file_id
 
         # Acknowledge receipt
-        await safe_send_photo(context.bot, update.message.chat_id, file_id, "Image received successfully!")
+        await update.message.reply_text("Image received and being forwarded!")
 
         # Forward the image to authorized users in FORWARD_LIST
-        for username, forward_chat_id in FORWARD_LIST.items():
-            logger.info(f"Forwarding image to @{username} (Chat ID: {forward_chat_id})")
-            await safe_send_photo(context.bot, forward_chat_id, file_id, f"Forwarded image from @{update.message.chat.username}")
+        for forward_username, forward_chat_id in FORWARD_LIST.items():
+            try:
+                logger.info(f"Forwarding image to @{forward_username} (Chat ID: {forward_chat_id})")
+                await safe_send_photo(
+                    context.bot, 
+                    forward_chat_id, 
+                    file_id, 
+                    # f"Forwarded image from @{username}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to forward image to @{forward_username} (Chat ID: {forward_chat_id}): {e}")
+
+        logger.info(f"Image sent by @{username} (User ID: {user_id}) forwarded successfully.")
 
 
 async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
