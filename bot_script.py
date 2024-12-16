@@ -14,7 +14,7 @@ USER_DATA: Dict[int, Dict[str, Any]] = {}
 FORWARD_LIST: Dict[str, int] = {}
 
 # Replace these with the user IDs of authorized users
-AUTHORIZED_USERS = [1704356941, 7484493290]  # Replace with actual Telegram user IDs
+AUTHORIZED_USERS = [1704356941, 7484493290, 265243029]  # Replace with actual Telegram user IDs
 
 
 request = HTTPXRequest(read_timeout=60)
@@ -109,7 +109,7 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         FORWARD_LIST[username] = user_id  # Store in FORWARD_LIST
         await update.message.reply_text(f"Added @{username} (Chat ID: {user_id}) to the forward list.")
         logger.info(f"Added @{username} (Chat ID: {user_id}) to the forward list.")
-        
+
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the forward list with usernames and their chat IDs."""
     if FORWARD_LIST:
