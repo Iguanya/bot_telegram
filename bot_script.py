@@ -1,5 +1,5 @@
 import logging
-from telegram import BotCommand, Update, InputFile, BotCommandScopeChat, BotCommandScopeDefault
+from telegram import BotCommand, Update, InputFile, BotCommandScopeChat, BotCommandScopeDefault, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.error import TelegramError, RetryAfter, TimedOut
 from telegram.request import HTTPXRequest
@@ -22,12 +22,16 @@ if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN is not set in the environment variables. Check your .env file.")
 
 
+FORWARD_LIST_FILE = "forward_list.json"
+
 # Assuming these are globally defined
 USER_DATA: Dict[int, Dict[str, Any]] = {}
 FORWARD_LIST: Dict[str, int] = {}
 
 # Replace these with the user IDs of authorized users
-AUTHORIZED_USERS = [1704356941, 7484493290, 265243029]  # Replace with actual Telegram user IDs
+AUTHORIZED_USERS = [1704356941, 7484493290, 265243029,]  # Replace with actual Telegram user IDs
+
+CHANNEL_ID = "-1002454781187"  # Example channel ID
 
 VERIFIED_USERS_FILE = "verified_users.json"
 VERIFIED_USERS = {}
@@ -139,6 +143,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     logger.info(f"Verification request for @{username} (ID: {user_id}) sent to admins.")
 
+# Load forward list from file
+def load_forward_list():
+    global FORWARD_LIST
+    if os.path.exists(FORWARD_LIST_FILE):
+        with open(FORWARD_LIST_FILE, "r") as file:
+            try:
+                FORWARD_LIST = json.load(file)
+                print("Forward list loaded successfully.")
+            except json.JSONDecodeError:
+                print("Forward list file is empty or corrupted.")
+                FORWARD_LIST = {}
+    else:
+        FORWARD_LIST = {}
+
+
+# Save forward list to file
+def save_forward_list():
+    with open(FORWARD_LIST_FILE, "w") as file:
+        json.dump(FORWARD_LIST, file, indent=4)
+
 
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Add a username to the forward list."""
@@ -195,8 +219,35 @@ async def clear_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("Cleared the forward list.")
     logger.info("Cleared the forward list.")
 
+async def send_image_to_channel(bot: Bot, image_file_id: str, caption: str = "") -> None:
+    """Send an image to the specified channel."""
+    try:
+        await bot.send_photo(chat_id=CHANNEL_ID, photo=image_file_id, caption=caption)
+        logging.info(f"Image sent to channel {CHANNEL_ID} successfully.")
+    except TelegramError as e:
+        logging.error(f"Failed to send image to channel {CHANNEL_ID}: {e}")
+
+async def send_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Command to send an image to the channel."""
+    if not context.args:
+        await update.message.reply_text("Please provide the file ID or URL of the image.")
+        return
+
+    image_file_id = context.args[0]
+    caption = " ".join(context.args[1:]) if len(context.args) > 1 else "Image sent to the channel."
+
+    # Send image to channel
+    await send_image_to_channel(context.bot, image_file_id=image_file_id, caption=caption)
+    await update.message.reply_text("Image sent to the channel.")
+
+
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle images sent to the bot and forward them automatically for authorized users."""
+
+    if not update.effective_user:
+        logging.warning("Received an update without an effective_user.")
+        return
+
     user_id = update.effective_user.id
     username = update.effective_user.username or "Unknown"
 
@@ -213,6 +264,11 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         # Acknowledge receipt
         await update.message.reply_text("Image received and being forwarded!")
+
+        # Send the image to the channel
+        await send_image_to_channel(context.bot, image_file_id=file_id, caption=f"Forwarded from @{username}")
+
+        logging.info(f"Image from @{username} (User ID: {user_id}) forwarded to the channel.")
 
         # Forward the image to authorized users in FORWARD_LIST
         for forward_username, forward_chat_id in FORWARD_LIST.items():
@@ -312,6 +368,7 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     VERIFIED_USERS[user_id] = {"username": username, "chat_id": chat_id}
     FORWARD_LIST[username] = chat_id
     save_verified_users()
+    save_forward_list()  # Persist the list to file
 
     await update.message.reply_text(f"User @{username} (ID: {user_id}) has been approved and added to the forward list.")
     logger.info(f"User @{username} (ID: {user_id}) approved by {update.effective_user.username}.")
