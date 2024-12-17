@@ -6,11 +6,22 @@ from telegram.request import HTTPXRequest
 from telegram.helpers import escape_markdown
 from typing import Dict, Any
 import os
+from dotenv import load_dotenv
 import json
 
-# Replace with your bot token
-BOT_TOKEN = '7425198155:AAHdA02heNdgiXIQ5oyV5RZhlA1THX1m44I'
 
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# Retrieve the bot token from the environment
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN is not set in the environment variables. Check your .env file.")
+
+    
 # Assuming these are globally defined
 USER_DATA: Dict[int, Dict[str, Any]] = {}
 FORWARD_LIST: Dict[str, int] = {}
