@@ -21,7 +21,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN is not set in the environment variables. Check your .env file.")
 
-    
+
 # Assuming these are globally defined
 USER_DATA: Dict[int, Dict[str, Any]] = {}
 FORWARD_LIST: Dict[str, int] = {}
@@ -97,7 +97,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if username not in FORWARD_LIST:
             FORWARD_LIST[username] = chat_id
             logger.info(f"Verified user @{username} (Chat ID: {chat_id}) added to forward list.")
-        await set_bot_commands(context.application, user_id=user_id, is_authorized=True)
+        await set_bot_commands(context.application, user_id=user_id, is_authorized=False)
         await update.message.reply_text("Welcome back! We are preparing your slips.")
         return
 
