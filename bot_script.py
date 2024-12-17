@@ -3,7 +3,9 @@ from telegram import BotCommand, Update, InputFile, BotCommandScopeChat, BotComm
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.error import TelegramError, RetryAfter, TimedOut
 from telegram.request import HTTPXRequest
+from telegram.helpers import escape_markdown
 from typing import Dict, Any
+import os
 import json
 
 # Replace with your bot token
@@ -16,6 +18,8 @@ FORWARD_LIST: Dict[str, int] = {}
 # Replace these with the user IDs of authorized users
 AUTHORIZED_USERS = [1704356941, 7484493290, 265243029]  # Replace with actual Telegram user IDs
 
+VERIFIED_USERS_FILE = "verified_users.json"
+VERIFIED_USERS = {}
 
 request = HTTPXRequest(read_timeout=60)
 
@@ -62,29 +66,68 @@ async def set_bot_commands(application, user_id=None, is_authorized=False) -> No
     await application.bot.set_my_commands(commands)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a welcome message, dynamically set commands, and add users to forward list."""
+    """Send a welcome message, dynamically set commands, and request verification for new users."""
     user_id = update.effective_user.id
     username = update.effective_user.username or "Unknown"
+    chat_id = update.effective_chat.id
 
-    # Save username and chat ID
-    USER_DATA[user_id] = {"username": username, "chat_id": update.effective_chat.id}
-    logger.info(f"Saved user: {username} (ID: {user_id}, Chat ID: {update.effective_chat.id})")
+    # Escape user input for Telegram MarkdownV2
+    escaped_username = escape_markdown(username, version=2)
+    escaped_user_id = escape_markdown(str(user_id), version=2)
 
-    # Add to the forward list
-    if username not in FORWARD_LIST:
-        FORWARD_LIST[username] = update.effective_chat.id
-        logger.info(f"User @{username} (Chat ID: {update.effective_chat.id}) added to forward list.")
 
+    # Save user data locally
+    USER_DATA[user_id] = {"username": username, "chat_id": chat_id}
+    logger.info(f"Saved user: {username} (ID: {user_id}, Chat ID: {chat_id})")
+
+    # Check if the user is already verified
+    if str(user_id) in VERIFIED_USERS:
+        # Add verified user to the forward list if not already added
+        if username not in FORWARD_LIST:
+            FORWARD_LIST[username] = chat_id
+            logger.info(f"Verified user @{username} (Chat ID: {chat_id}) added to forward list.")
+        await set_bot_commands(context.application, user_id=user_id, is_authorized=True)
+        await update.message.reply_text("Welcome back! We are preparing your slips.")
+        return
+
+    # If user is authorized
     if user_id in AUTHORIZED_USERS:
         await set_bot_commands(context.application, user_id=user_id, is_authorized=True)
         await update.message.reply_text(
             "Welcome! You are authorized to manage this bot. Full menu enabled."
         )
-    else:
-        await set_bot_commands(context.application, user_id=user_id, is_authorized=False)
-        await update.message.reply_text(
-            "Welcome! We will deliver the Slips shortly."
-        )
+        # Automatically add authorized users to the forward list
+        if username not in FORWARD_LIST:
+            FORWARD_LIST[username] = chat_id
+            logger.info(f"Authorized user @{username} (Chat ID: {chat_id}) added to forward list.")
+        return
+
+    # Handle unauthorized users: send a verification request to authorized users
+    verification_request = (
+        f"🔔 *Verification Request*\n\n"
+        f"User @{escaped_username} \\(ID: {escaped_user_id}\\) has started the bot and requested access\n"
+        f"Approve with: `/approve {escaped_user_id}`\nReject with: `/reject {escaped_user_id}`"
+    )
+
+
+    logger.debug(f"Verification message: {verification_request}")
+
+    for auth_user_id in AUTHORIZED_USERS:
+        try:
+            await context.bot.send_message(
+                chat_id=auth_user_id,
+                text=verification_request,
+                parse_mode="MarkdownV2"  # Correct parse_mode
+            )
+        except Exception as e:
+            logger.error(f"Failed to send verification request to authorized user {auth_user_id}: {e}")
+
+    await set_bot_commands(context.application, user_id=user_id, is_authorized=False)
+    await update.message.reply_text(
+        "Welcome! Your access request has been sent to the admins for verification."
+    )
+    logger.info(f"Verification request for @{username} (ID: {user_id}) sent to admins.")
+
 
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Add a username to the forward list."""
@@ -217,16 +260,62 @@ def save_user_data():
             except Exception as e:
                 logger.error(f"Failed to send notification to authorized user {user_id}: {e}")
 
-def load_user_data():
-    """Load user data from a JSON file."""
-    global USER_DATA
-    try:
-        with open("user_data.json", "r") as file:
-            USER_DATA = json.load(file)
-            logger.info("User data loaded successfully.")
-    except FileNotFoundError:
-        USER_DATA = {}
-        logger.warning("User data file not found. Initialized empty USER_DATA.")
+def load_verified_users():
+    """Load verified users from a JSON file."""
+    global VERIFIED_USERS
+    if os.path.exists(VERIFIED_USERS_FILE):
+        with open(VERIFIED_USERS_FILE, "r") as file:
+            VERIFIED_USERS = json.load(file)
+            logger.info("Verified users loaded successfully.")
+    else:
+        VERIFIED_USERS = {}
+        logger.info("No verified users file found. Starting with an empty list.")
+
+def save_verified_users():
+    """Save verified users to a JSON file."""
+    with open(VERIFIED_USERS_FILE, "w") as file:
+        json.dump(VERIFIED_USERS, file, indent=4)
+    logger.info("Verified users saved successfully.")
+
+async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Approve a user and add them to the forward list."""
+    if not context.args:
+        await update.message.reply_text("Please provide a user ID. Example: /approve <user_id>")
+        return
+    
+    user_id = context.args[0]
+    if user_id in VERIFIED_USERS:
+        await update.message.reply_text(f"User {user_id} is already verified.")
+        return
+    
+    # Check if user exists in USER_DATA
+    user_details = USER_DATA.get(int(user_id))
+    if not user_details:
+        await update.message.reply_text("User ID not found. Ensure they have started the bot.")
+        return
+
+    username = user_details["username"]
+    chat_id = user_details["chat_id"]
+
+    # Add user to VERIFIED_USERS and FORWARD_LIST
+    VERIFIED_USERS[user_id] = {"username": username, "chat_id": chat_id}
+    FORWARD_LIST[username] = chat_id
+    save_verified_users()
+
+    await update.message.reply_text(f"User @{username} (ID: {user_id}) has been approved and added to the forward list.")
+    logger.info(f"User @{username} (ID: {user_id}) approved by {update.effective_user.username}.")
+
+async def reject_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reject a user's verification request."""
+    if not context.args:
+        await update.message.reply_text("Please provide a user ID. Example: /reject <user_id>")
+        return
+    
+    user_id = context.args[0]
+    if user_id in USER_DATA:
+        del USER_DATA[int(user_id)]
+    await update.message.reply_text(f"User ID {user_id} has been rejected.")
+    logger.info(f"User ID {user_id} rejected by {update.effective_user.username}.")
 
 
 # Function for graceful shutdown and saving user data
@@ -242,7 +331,7 @@ async def stop_application(application):
 async def main() -> None:
     """Start the bot."""
     
-    load_user_data()  # Load user data at startup
+    # load_user_data()  # Load user data at startup
     
     logger.info("Starting bot")
     
@@ -259,6 +348,9 @@ async def main() -> None:
     application.add_handler(CommandHandler("clear_users", clear_users))
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
     application.add_handler(CommandHandler("send_image", send_image))
+    application.add_handler(CommandHandler("approve", approve_user))
+    application.add_handler(CommandHandler("reject", reject_user))
+
 
    # Register shutdown handler using post_shutdown instead of on_shutdown.
        # Register shutdown handler using post_shutdown instead of on_shutdown.
@@ -275,6 +367,9 @@ if __name__ == "__main__":
 
         # Allow nested event loops for environments where a loop is already running
         nest_asyncio.apply()
+
+        load_verified_users()
+        save_user_data() 
 
         # Retrieve or create the event loop
         loop = asyncio.get_event_loop()
