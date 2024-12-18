@@ -84,20 +84,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message, dynamically set commands, and request verification for new users."""
     user_id = update.effective_user.id
     username = update.effective_user.username or "Unknown"
+    first_name = update.effective_user.first_name or ""
+    last_name = update.effective_user.last_name or ""
     chat_id = update.effective_chat.id
+
+    # Combine full name (handle if last_name is None)
+    full_name = f"{first_name} {last_name}".strip()
+    if not full_name:
+        full_name = "Unknown Name"
 
     # Escape user input for Telegram MarkdownV2
     escaped_username = escape_markdown(username, version=2)
+    escaped_full_name = escape_markdown(full_name, version=2)
     escaped_user_id = escape_markdown(str(user_id), version=2)
 
-
     # Save user data locally
-    USER_DATA[user_id] = {"username": username, "chat_id": chat_id}
-    logger.info(f"Saved user: {username} (ID: {user_id}, Chat ID: {chat_id})")
+    USER_DATA[user_id] = {"username": username, "full_name": full_name, "chat_id": chat_id}
+    logger.info(f"Saved user: {full_name} (@{username}, ID: {user_id}, Chat ID: {chat_id})")
 
     # Check if the user is already verified
     if str(user_id) in VERIFIED_USERS:
-        # Add verified user to the forward list if not already added
         if username not in FORWARD_LIST:
             FORWARD_LIST[username] = chat_id
             logger.info(f"Verified user @{username} (Chat ID: {chat_id}) added to forward list.")
@@ -120,10 +126,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Handle unauthorized users: send a verification request to authorized users
     verification_request = (
         f"🔔 *Verification Request*\n\n"
-        f"User @{escaped_username} \\(ID: {escaped_user_id}\\) has started the bot and requested access\n"
+        f"User {escaped_full_name} (@{escaped_username}) \\(ID: {escaped_user_id}\\) has started the bot and requested access\n"
         f"Approve with: `/approve {escaped_user_id}`\nReject with: `/reject {escaped_user_id}`"
     )
-
 
     logger.debug(f"Verification message: {verification_request}")
 
@@ -132,7 +137,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await context.bot.send_message(
                 chat_id=auth_user_id,
                 text=verification_request,
-                parse_mode="MarkdownV2"  # Correct parse_mode
+                parse_mode="MarkdownV2"
             )
         except Exception as e:
             logger.error(f"Failed to send verification request to authorized user {auth_user_id}: {e}")
@@ -141,7 +146,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Welcome! Your access request has been sent to the admins for verification."
     )
-    logger.info(f"Verification request for @{username} (ID: {user_id}) sent to admins.")
+    logger.info(f"Verification request for {full_name} (@{username}, ID: {user_id}) sent to admins.")
 
 # Load forward list from file
 def load_forward_list():
