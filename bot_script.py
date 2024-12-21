@@ -80,6 +80,41 @@ async def set_bot_commands(application, user_id=None, is_authorized=False) -> No
     await application.bot.set_my_commands(commands, scope=scope)
     await application.bot.set_my_commands(commands)
 
+async def authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Authorize a user (admin-only)."""
+    # Get the admin's user ID
+    admin_id = update.effective_user.id
+    username = update.effective_user.username or "Unknown"
+    
+    # Check if the user is an admin
+    if admin_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("⛔ You are not authorized to use this command.")
+        logger.warning(f"Unauthorized access attempt by @{username} (ID: {admin_id}).")
+        return
+
+    # Parse the target user ID from the command
+    try:
+        target_user_id = int(context.args[0])
+    except (IndexError, ValueError):
+        await update.message.reply_text("⚠️ Usage: /authorize <user_id>")
+        return
+
+    # Check if the user is already authorized
+    if target_user_id in AUTHORIZED_USERS:
+        await update.message.reply_text(f"✅ User ID {target_user_id} is already authorized.")
+        return
+
+    # Authorize the user and add them to the forward list
+    AUTHORIZED_USERS.add(target_user_id)
+
+    # Get the username for the forward list if available
+    target_user_username = context.bot.get_chat(target_user_id).username or "Unknown"
+    FORWARD_LIST[target_user_username] = target_user_id
+
+    await update.message.reply_text(f"✅ User ID {target_user_id} has been authorized.")
+    logger.info(f"Admin @{username} (ID: {admin_id}) authorized user {target_user_id}.")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message, dynamically set commands, and request verification for new users."""
     user_id = update.effective_user.id
@@ -146,6 +181,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Welcome! Your access request has been sent to the admins for verification."
     )
+    await auto_add_authorized_user(update, context)
     logger.info(f"Verification request for {full_name} (@{username}, ID: {user_id}) sent to admins.")
 
 # Load forward list from file
@@ -423,6 +459,9 @@ async def main() -> None:
     application.add_handler(CommandHandler("send_image", send_image))
     application.add_handler(CommandHandler("approve", approve_user))
     application.add_handler(CommandHandler("reject", reject_user))
+    # Add the `/authorize` command
+    app.add_handler(CommandHandler("authorize", auto_add_authorized_user))
+
 
 
    # Register shutdown handler using post_shutdown instead of on_shutdown.
