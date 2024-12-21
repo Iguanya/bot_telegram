@@ -36,6 +36,9 @@ CHANNEL_ID = "-1002454781187"  # Example channel ID
 VERIFIED_USERS_FILE = "verified_users.json"
 VERIFIED_USERS = {}
 
+
+USER_DATA_FILE = "user_data.json"
+
 request = HTTPXRequest(read_timeout=60)
 
 # Configure logging
@@ -129,14 +132,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not full_name:
         full_name = "Unknown Name"
 
-    # Escape user input for Telegram MarkdownV2
-    escaped_username = escape_markdown(username, version=2)
-    escaped_full_name = escape_markdown(full_name, version=2)
-    escaped_user_id = escape_markdown(str(user_id), version=2)
+    # Record the current timestamp
+    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Save user data locally
-    USER_DATA[user_id] = {"username": username, "full_name": full_name, "chat_id": chat_id}
-    logger.info(f"Saved user: {full_name} (@{username}, ID: {user_id}, Chat ID: {chat_id})")
+    USER_DATA[user_id] = {
+        "username": username,
+        "full_name": full_name,
+        "chat_id": chat_id,
+        "start_time": start_time,
+    }
+    save_user_data()  # Save to JSON file
+
+    logger.info(f"Saved user: {full_name} (@{username}, ID: {user_id}, Chat ID: {chat_id}, Started at: {start_time})")
 
     # Check if the user is already verified
     if str(user_id) in VERIFIED_USERS:
@@ -162,8 +170,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Handle unauthorized users: send a verification request to authorized users
     verification_request = (
         f"🔔 *Verification Request*\n\n"
-        f"User {escaped_full_name} \\(@{escaped_username}\\) \\(ID: {escaped_user_id}\\) has started the bot and requested access\n"
-        f"Approve with: `/approve {escaped_user_id}`\nReject with: `/reject {escaped_user_id}`"
+        f"User {full_name} (@{username}) (ID: {user_id}) has started the bot and requested access\n"
+        f"Approve with: `/approve {user_id}`\nReject with: `/reject {user_id}`"
     )
 
     logger.debug(f"Verification message: {verification_request}")
@@ -353,21 +361,27 @@ async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def save_user_data():
-    """Save user data to a JSON file and notify authorized users."""
-    with open("user_data.json", "w") as file:
-        json.dump(USER_DATA, file)
+    """Save USER_DATA to a JSON file."""
+    try:
+        with open(USER_DATA_FILE, "w") as f:
+            json.dump(USER_DATA, f, indent=4)
+        logger.info("User data saved successfully.")
+    except Exception as e:
+        logger.error(f"Failed to save user data: {e}")
 
-    # Notify authorized users about the saved user data
-    for user_id in AUTHORIZED_USERS:
-        if user_id in USER_DATA:
-            username = USER_DATA[user_id]["username"]
-            chat_id = USER_DATA[user_id]["chat_id"]
-            message = f"Saved user: @{username} (ID: {user_id}, Chat ID: {chat_id})"
-            # Send message to authorized users (you may need to handle exceptions here)
-            try:
-                application.bot.send_message(chat_id=user_id, text=message)
-            except Exception as e:
-                logger.error(f"Failed to send notification to authorized user {user_id}: {e}")
+def load_user_data():
+    """Load USER_DATA from a JSON file."""
+    global USER_DATA
+    try:
+        with open(USER_DATA_FILE, "r") as f:
+            USER_DATA = json.load(f)
+        logger.info("User data loaded successfully.")
+    except FileNotFoundError:
+        logger.warning(f"No existing {USER_DATA_FILE} found. Starting fresh.")
+        USER_DATA = {}
+    except Exception as e:
+        logger.error(f"Failed to load user data: {e}")
+        USER_DATA = {}
 
 def load_verified_users():
     """Load verified users from a JSON file."""
@@ -482,6 +496,7 @@ if __name__ == "__main__":
 
         load_verified_users()
         save_user_data() 
+        load_user_data()
 
         # Retrieve or create the event loop
         loop = asyncio.get_event_loop()
