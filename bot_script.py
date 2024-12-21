@@ -66,7 +66,7 @@ async def set_bot_commands(application, user_id=None, is_authorized=False) -> No
             BotCommand("show_users", "Show all usernames in the forward list"),
             BotCommand("remove_user", "Remove a username from the forward list"),
             BotCommand("clear_users", "Clear the forward list"),
-            BotCommand("auto_add_authorized_user", "Authorize user"),
+            BotCommand("authorize_user", "Authorize user"),
             BotCommand("send_image", "Manually send an image to the forward list"),  # New command
         ]
         scope = BotCommandScopeChat(user_id)
@@ -182,7 +182,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Welcome! Your access request has been sent to the admins for verification."
     )
-    await auto_add_authorized_user(update, context)
+    await authorized_user(update, context)
     logger.info(f"Verification request for {full_name} (@{username}, ID: {user_id}) sent to admins.")
 
 # Load forward list from file
@@ -461,7 +461,7 @@ async def main() -> None:
     application.add_handler(CommandHandler("approve", approve_user))
     application.add_handler(CommandHandler("reject", reject_user))
     # Add the `/authorize` command
-    application.add_handler(CommandHandler("authorize", auto_add_authorized_user))
+    application.add_handler(CommandHandler("authorize", authorize_user))
 
 
    # Register shutdown handler using post_shutdown instead of on_shutdown.
