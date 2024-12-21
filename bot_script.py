@@ -66,6 +66,7 @@ async def set_bot_commands(application, user_id=None, is_authorized=False) -> No
             BotCommand("show_users", "Show all usernames in the forward list"),
             BotCommand("remove_user", "Remove a username from the forward list"),
             BotCommand("clear_users", "Clear the forward list"),
+            BotCommand("auto_add_authorized_user", "Authorize user"),
             BotCommand("send_image", "Manually send an image to the forward list"),  # New command
         ]
         scope = BotCommandScopeChat(user_id)
