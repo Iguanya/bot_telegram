@@ -162,7 +162,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Handle unauthorized users: send a verification request to authorized users
     verification_request = (
         f"🔔 *Verification Request*\n\n"
-        f"User {escaped_full_name} (@{escaped_username}) \\(ID: {escaped_user_id}\\) has started the bot and requested access\n"
+        f"User {escaped_full_name} \\(@{escaped_username}\\) \\(ID: {escaped_user_id}\\) has started the bot and requested access\n"
         f"Approve with: `/approve {escaped_user_id}`\nReject with: `/reject {escaped_user_id}`"
     )
 
