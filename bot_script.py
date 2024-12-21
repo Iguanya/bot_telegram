@@ -460,8 +460,7 @@ async def main() -> None:
     application.add_handler(CommandHandler("approve", approve_user))
     application.add_handler(CommandHandler("reject", reject_user))
     # Add the `/authorize` command
-    app.add_handler(CommandHandler("authorize", auto_add_authorized_user))
-
+    application.add_handler(CommandHandler("authorize", auto_add_authorized_user))
 
 
    # Register shutdown handler using post_shutdown instead of on_shutdown.
