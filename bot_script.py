@@ -29,7 +29,7 @@ USER_DATA: Dict[int, Dict[str, Any]] = {}
 FORWARD_LIST: Dict[str, int] = {}
 
 # Replace these with the user IDs of authorized users
-AUTHORIZED_USERS = [1704356941, 7484493290, 265243029,]  # Replace with actual Telegram user IDs
+AUTHORIZED_USERS = [1704356941, 7484493290, 265243029, 6564890289]  # Replace with actual Telegram user IDs
 
 CHANNEL_ID = "-1002454781187"  # Example channel ID
 
