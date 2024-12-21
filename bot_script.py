@@ -182,7 +182,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Welcome! Your access request has been sent to the admins for verification."
     )
-    await authorized_user(update, context)
+    await authorize_user(update, context)
     logger.info(f"Verification request for {full_name} (@{username}, ID: {user_id}) sent to admins.")
 
 # Load forward list from file
