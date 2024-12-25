@@ -246,7 +246,7 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "full_name": full_name,
             "chat_id": chat_id
         }
-        save_user_data()  # Persist updated user data
+        #save_user_data()  # Persist updated user data
 
         # Add to FORWARD_LIST if not already present
         if user_id in FORWARD_LIST:
@@ -382,36 +382,28 @@ async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def save_user_data():
-    """Save USER_DATA to a JSON file."""
-    try:
-        with open(USER_DATA_FILE, "w") as f:
-            json.dump(USER_DATA, f, indent=4)
-        logger.info("User data saved successfully.")
-    except Exception as e:
-        logger.error(f"Failed to save user data: {e}")
-
-
-def load_user_data():
-    """Load USER_DATA from a JSON file."""
+    """Save USER_DATA to a JSON file without overwriting existing data."""
     global USER_DATA
     try:
-        with open(USER_DATA_FILE, "r") as f:
-            USER_DATA = json.load(f)
-        logger.info("User data loaded successfully.")
+        # Check if the file exists and load existing data
+        if os.path.exists(USER_DATA_FILE):
+            with open(USER_DATA_FILE, "r") as f:
+                try:
+                    existing_data = json.load(f)
+                except json.JSONDecodeError:
+                    existing_data = {}  # Handle empty or corrupted files
+            USER_DATA.update(existing_data)  # Merge existing data with current USER_DATA
 
-        # Add all users from USER_DATA to FORWARD_LIST
-        for user_id, data in USER_DATA.items():
-            username = data.get("username", None)
-            chat_id = data.get("chat_id", None)
-            if chat_id and user_id not in FORWARD_LIST:
-                FORWARD_LIST[int(user_id)] = chat_id
-                logger.info(f"Loaded user {username or 'Unknown'} (ID: {user_id}) to forward list.")
-    except FileNotFoundError:
-        logger.warning(f"No existing {USER_DATA_FILE} found. Starting fresh.")
-        USER_DATA = {}
+        # Save updated USER_DATA back to the file
+        with open(USER_DATA_FILE, "w") as f:
+            json.dump(USER_DATA, f, indent=4)
+
+        logger.info(f"User data saved successfully. Total users: {len(USER_DATA)}")
+        logger.debug(f"Before save, USER_DATA: {USER_DATA}")
+        logger.debug(f"Existing data in file: {existing_data}")
+
     except Exception as e:
-        logger.error(f"Failed to load user data: {e}")
-        USER_DATA = {}
+        logger.error(f"Failed to save user data: {e}")
 
 def load_user_data():
     """Load USER_DATA from a JSON file."""
@@ -506,9 +498,7 @@ async def stop_application(application):
 # Main function to start the bot
 async def main() -> None:
     """Start the bot."""
-    
-    load_user_data()  # Load user data at startup
-    
+
     logger.info("Starting bot")
     
     application = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -547,7 +537,7 @@ if __name__ == "__main__":
         nest_asyncio.apply()
 
         load_verified_users()
-        save_user_data() 
+        save_user_data()
         load_user_data()
 
         # Retrieve or create the event loop
