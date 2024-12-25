@@ -217,28 +217,47 @@ def save_forward_list():
 
 
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add a username to the forward list."""
+    """Add a user to the forward list based on user ID."""
     if not context.args:
-        await update.message.reply_text("Please provide a username. Example: /add_user <username>")
+        await update.message.reply_text("Please provide a user ID. Example: /add_user <user_id>")
         return
 
-    username = context.args[0]
+    try:
+        user_id = int(context.args[0])  # Extract user ID from command arguments
+    except ValueError:
+        await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
+        return
 
-    if username.startswith("@"):
-        username = username[1:]  # Remove '@' for internal storage
+    try:
+        # Query user details from Telegram
+        user_details = await context.bot.get_chat(user_id)
+        username = user_details.username or None
+        first_name = user_details.first_name or "Unknown"
+        last_name = user_details.last_name or ""
+        chat_id = user_details.id  # Ensure proper chat_id assignment
 
-    user_id = update.message.chat.id  # Get user's chat ID
+        # Combine full name
+        full_name = f"{first_name} {last_name}".strip()
+        display_name = f"@{username}" if username else full_name
 
-    # Store user's chat ID in USER_DATA for future reference
-    USER_DATA[user_id] = {"username": username, "chat_id": user_id}
+        # Save user details in USER_DATA
+        USER_DATA[user_id] = {
+            "username": username,
+            "full_name": full_name,
+            "chat_id": chat_id
+        }
+        save_user_data()  # Persist updated user data
 
-    # Add to FORWARD_LIST if not already present
-    if username in FORWARD_LIST:
-        await update.message.reply_text(f"User @{username} is already in the forward list.")
-    else:
-        FORWARD_LIST[username] = user_id  # Store in FORWARD_LIST
-        await update.message.reply_text(f"Added @{username} (Chat ID: {user_id}) to the forward list.")
-        logger.info(f"Added @{username} (Chat ID: {user_id}) to the forward list.")
+        # Add to FORWARD_LIST if not already present
+        if user_id in FORWARD_LIST:
+            await update.message.reply_text(f"User {display_name} (ID: {user_id}) is already in the forward list.")
+        else:
+            FORWARD_LIST[user_id] = chat_id
+            await update.message.reply_text(f"Added user {display_name} (ID: {user_id}) to the forward list.")
+            logger.info(f"Added user {display_name} (ID: {user_id}) to the forward list.")
+    except Exception as e:
+        logger.error(f"Failed to add user ID {user_id}: {e}")
+        await update.message.reply_text(f"Failed to fetch details for user ID {user_id}. Please verify the ID.")
 
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the forward list with usernames and their chat IDs."""
@@ -288,8 +307,6 @@ async def send_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     image_file_id = context.args[0]
     caption = " ".join(context.args[1:]) if len(context.args) > 1 else "Image sent to the channel."
 
-    # Send image to channel
-    await send_image_to_channel(context.bot, image_file_id=image_file_id, caption=caption)
     await update.message.reply_text("Image sent to the channel.")
 
 
@@ -359,6 +376,8 @@ async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.info(f"Sending image to @{username} (Chat ID: {chat_id})")
         await safe_send_photo(context.bot, chat_id, image, caption)
 
+    await send_image_to_channel(context.bot, image_file_id=image_file_id, caption=caption)
+    await update.message.reply_text("Image sent to the channel.")
     await update.message.reply_text("Image sent successfully.")
 
 
@@ -370,6 +389,29 @@ def save_user_data():
         logger.info("User data saved successfully.")
     except Exception as e:
         logger.error(f"Failed to save user data: {e}")
+
+
+def load_user_data():
+    """Load USER_DATA from a JSON file."""
+    global USER_DATA
+    try:
+        with open(USER_DATA_FILE, "r") as f:
+            USER_DATA = json.load(f)
+        logger.info("User data loaded successfully.")
+
+        # Add all users from USER_DATA to FORWARD_LIST
+        for user_id, data in USER_DATA.items():
+            username = data.get("username", None)
+            chat_id = data.get("chat_id", None)
+            if chat_id and user_id not in FORWARD_LIST:
+                FORWARD_LIST[int(user_id)] = chat_id
+                logger.info(f"Loaded user {username or 'Unknown'} (ID: {user_id}) to forward list.")
+    except FileNotFoundError:
+        logger.warning(f"No existing {USER_DATA_FILE} found. Starting fresh.")
+        USER_DATA = {}
+    except Exception as e:
+        logger.error(f"Failed to load user data: {e}")
+        USER_DATA = {}
 
 def load_user_data():
     """Load USER_DATA from a JSON file."""
