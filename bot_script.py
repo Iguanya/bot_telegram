@@ -262,7 +262,7 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the forward list with usernames and their chat IDs."""
     if FORWARD_LIST:
-        response = "Forward list:\n" + "\n".join(f"@{username}: {user_id}" for username, user_id in FORWARD_LIST.items())
+        response = "Forward list:\n" + "\n".join(f"{username}: {user_id}" for username, user_id in FORWARD_LIST.items())
         await update.message.reply_text(response)
     else:
         await update.message.reply_text("The forward list is empty.")
@@ -415,11 +415,19 @@ def load_user_data():
 
 def load_user_data():
     """Load USER_DATA from a JSON file."""
-    global USER_DATA
+    global USER_DATA, FORWARD_LIST
     try:
         with open(USER_DATA_FILE, "r") as f:
             USER_DATA = json.load(f)
         logger.info("User data loaded successfully.")
+
+        # Add all users from USER_DATA to FORWARD_LIST
+        for user_id, data in USER_DATA.items():
+            username = data.get("username", None) or f"User_{user_id}"  # Use a fallback if no username
+            chat_id = data.get("chat_id", None)
+            if chat_id and username not in FORWARD_LIST:
+                FORWARD_LIST[username] = chat_id
+                logger.info(f"Loaded user {username} (ID: {user_id}, Chat ID: {chat_id}) to forward list.")
     except FileNotFoundError:
         logger.warning(f"No existing {USER_DATA_FILE} found. Starting fresh.")
         USER_DATA = {}
@@ -499,7 +507,7 @@ async def stop_application(application):
 async def main() -> None:
     """Start the bot."""
     
-    # load_user_data()  # Load user data at startup
+    load_user_data()  # Load user data at startup
     
     logger.info("Starting bot")
     
