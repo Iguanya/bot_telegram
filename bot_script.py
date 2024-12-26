@@ -259,7 +259,8 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         USER_DATA[user_id] = {
             "username": username,
             "full_name": full_name,
-            "chat_id": chat_id
+            "chat_id": chat_id,
+            "user_id": chat_id
         }
         save_user_data()  # Persist updated user data
     except Exception as e:
@@ -287,13 +288,20 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the forward list with display names and their chat IDs."""
+
+    global USER_DATA1
+
     if FORWARD_LIST:
+        with open(USER_DATA_FILE, "r") as f:
+            USER_DATA1 = json.load(f)
+            logger.info("User data loaded successfully.")
+
         response_lines = ["Forward list:"]
         for user_id, chat_id in FORWARD_LIST.items():
             # Retrieve details from USER_DATA
-            user_data = USER_DATA.get(user_id, {})
+            user_data = USER_DATA1.get(user_id, {})
             username = user_data.get("username", "Unknown")
-            full_name = user_data.get("full_name", "Unknown Name")
+            full_name = user_data.get("full_name", "Unknown User")
 
             # Format display name
             if username != "Unknown":
@@ -301,7 +309,10 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             else:
                 display_name = full_name
 
-            response_lines.append(f"{display_name}: {chat_id}")
+            response_lines.append(f"{full_name}: {chat_id}")
+
+            logger.info(f"USER_DATA1: {USER_DATA1}")
+            logger.info(f"USER_DATA for testing: {user_data}")
 
         # Send the response to the user
         await update.message.reply_text("\n".join(response_lines))
@@ -376,7 +387,7 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Image received and being forwarded!")
 
         # Send the image to the channel
-        await send_image_to_channel(context.bot, image_file_id=file_id, caption=f"Magic!!")
+        await send_image_to_channel(context.bot, image_file_id=file_id, caption=f"")
 
         logging.info(f"Image from @{username} (User ID: {user_id}) forwarded to the channel.")
 
@@ -417,7 +428,7 @@ async def send_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.info(f"Sending image to @{username} (Chat ID: {chat_id})")
         await safe_send_photo(context.bot, chat_id, image, caption)
 
-    await send_image_to_channel(context.bot, image_file_id=image_file_id, caption=caption)
+    await send_image_to_channel(context.bot, image_file_id=image_file_id, caption="")
     await update.message.reply_text("Image sent to the channel.")
     await update.message.reply_text("Image sent successfully.")
 
@@ -457,9 +468,10 @@ def load_user_data():
         # Add all users from USER_DATA to FORWARD_LIST
         for user_id, data in USER_DATA.items():
             username = data.get("username", None) or f"User_{user_id}"  # Use a fallback if no username
+            full_name = data.get("full_name", None)
             chat_id = data.get("chat_id", None)
             if chat_id and username not in FORWARD_LIST:
-                FORWARD_LIST[username] = chat_id
+                FORWARD_LIST[user_id] = chat_id
                 logger.info(f"Loaded user {username} (ID: {user_id}, Chat ID: {chat_id}) to forward list.")
     except FileNotFoundError:
         logger.warning(f"No existing {USER_DATA_FILE} found. Starting fresh.")
