@@ -6,10 +6,10 @@ from telegram.request import HTTPXRequest
 from telegram.helpers import escape_markdown
 from typing import Dict, Any
 import os
+import re
 from dotenv import load_dotenv
 import json
 from datetime import datetime
-
 
 
 
@@ -129,6 +129,10 @@ async def authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"❌ Failed to authorize user ID {target_user_id}. Error logged.")
 
 
+def escape_markdown(text: str) -> str:
+    """Escape special characters for MarkdownV2."""
+    special_chars = r"_*[]()~`>#+-=|{}.!"
+    return re.sub(f"([{re.escape(special_chars)}])", r"\\\1", text)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message, dynamically set commands, and request verification for new users."""
@@ -180,9 +184,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Handle unauthorized users: send a verification request to authorized users
     verification_request = (
-        f"🔔 *Verification Request*\n\n"
-        f"User {full_name} (@{username}) (ID: {user_id}) has started the bot and requested access\n"
-        f"Approve with: `/approve {user_id}`\nReject with: `/reject {user_id}`"
+        f"🔔 *Access Request*\n"
+        f"{escape_markdown(full_name)} "
+        f"@{escape_markdown(username)}\n"
+        f"ID: {user_id}\n\n"
+        f"Approve: `/add_user {user_id}`\n"
+        f"Reject: `/reject {user_id}`"
     )
 
     logger.debug(f"Verification message: {verification_request}")
@@ -227,22 +234,22 @@ def save_forward_list():
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Add a user to the forward list based on user ID."""
     if not context.args:
-        await update.message.reply_text("Please provide a user ID. Example: /add_user <user_id>")
+        await update.message.reply_text("⚠️ Please provide a user ID. Example: /add_user <user_id>")
         return
 
     try:
         user_id = int(context.args[0])  # Extract user ID from command arguments
     except ValueError:
-        await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
+        await update.message.reply_text("❌ Invalid user ID. Please provide a numeric user ID.")
         return
 
     try:
-        # Query user details from Telegram
+        # Attempt to fetch user details from Telegram API
         user_details = await context.bot.get_chat(user_id)
         username = user_details.username or None
         first_name = user_details.first_name or "Unknown"
         last_name = user_details.last_name or ""
-        chat_id = user_details.id  # Ensure proper chat_id assignment
+        chat_id = user_details.id
 
         # Combine full name
         full_name = f"{first_name} {last_name}".strip()
@@ -254,24 +261,50 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "full_name": full_name,
             "chat_id": chat_id
         }
-        #save_user_data()  # Persist updated user data
-
-        # Add to FORWARD_LIST if not already present
-        if user_id in FORWARD_LIST:
-            await update.message.reply_text(f"User {display_name} (ID: {user_id}) is already in the forward list.")
-        else:
-            FORWARD_LIST[user_id] = chat_id
-            await update.message.reply_text(f"Added user {display_name} (ID: {user_id}) to the forward list.")
-            logger.info(f"Added user {display_name} (ID: {user_id}) to the forward list.")
+        save_user_data()  # Persist updated user data
     except Exception as e:
-        logger.error(f"Failed to add user ID {user_id}: {e}")
-        await update.message.reply_text(f"Failed to fetch details for user ID {user_id}. Please verify the ID.")
+        # Handle cases where `getChat` fails
+        logger.error(f"Error fetching details for user ID {user_id}: {e}")
+
+        # Fallback to use data from `USER_DATA`
+        user_data = USER_DATA.get(user_id)
+        if user_data:
+            username = user_data.get("username", None)
+            full_name = user_data.get("full_name", "Unknown")
+            display_name = f"@{username}" if username else full_name
+            chat_id = user_data.get("chat_id", user_id)
+        else:
+            await update.message.reply_text(f"❌ Failed to fetch or retrieve saved details for user ID {user_id}.")
+            return
+
+    # Add to FORWARD_LIST if not already present
+    if user_id in FORWARD_LIST:
+        await update.message.reply_text(f"⚠️ User {display_name} (ID: {user_id}) is already in the forward list.")
+    else:
+        FORWARD_LIST[user_id] = display_name
+        await update.message.reply_text(f"✅ Added user {display_name} (ID: {user_id}) to the forward list.")
+        logger.info(f"✅ Added user {display_name} (ID: {user_id}) to the forward list.")
 
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the forward list with usernames and their chat IDs."""
+    """Show the forward list with display names and their chat IDs."""
     if FORWARD_LIST:
-        response = "Forward list:\n" + "\n".join(f"{username}: {user_id}" for username, user_id in FORWARD_LIST.items())
-        await update.message.reply_text(response)
+        response_lines = ["Forward list:"]
+        for user_id, chat_id in FORWARD_LIST.items():
+            # Retrieve details from USER_DATA
+            user_data = USER_DATA.get(user_id, {})
+            username = user_data.get("username", "Unknown")
+            full_name = user_data.get("full_name", "Unknown Name")
+
+            # Format display name
+            if username != "Unknown":
+                display_name = f"@{username} ({full_name})"
+            else:
+                display_name = full_name
+
+            response_lines.append(f"{display_name}: {chat_id}")
+
+        # Send the response to the user
+        await update.message.reply_text("\n".join(response_lines))
     else:
         await update.message.reply_text("The forward list is empty.")
 
@@ -343,7 +376,7 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Image received and being forwarded!")
 
         # Send the image to the channel
-        await send_image_to_channel(context.bot, image_file_id=file_id, caption=f"Forwarded from @{username}")
+        await send_image_to_channel(context.bot, image_file_id=file_id, caption=f"Magic!!")
 
         logging.info(f"Image from @{username} (User ID: {user_id}) forwarded to the channel.")
 
