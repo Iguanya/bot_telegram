@@ -88,14 +88,14 @@ async def set_bot_commands(application, user_id=None, is_authorized=False) -> No
 
 async def authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Authorize a user (admin-only)."""
-    # Get the admin's user ID
+    # Get the admin's user ID and username
     admin_id = update.effective_user.id
-    username = update.effective_user.username or "Unknown"
+    admin_username = update.effective_user.username or "Unknown"
     
     # Check if the user is an admin
     if admin_id not in AUTHORIZED_USERS:
         await update.message.reply_text("⛔ You are not authorized to use this command.")
-        logger.warning(f"Unauthorized access attempt by @{username} (ID: {admin_id}).")
+        logger.warning(f"Unauthorized access attempt by @{admin_username} (ID: {admin_id}).")
         return
 
     # Parse the target user ID from the command
@@ -110,15 +110,24 @@ async def authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"✅ User ID {target_user_id} is already authorized.")
         return
 
-    # Authorize the user and add them to the forward list
-    AUTHORIZED_USERS.add(target_user_id)
+    try:
+        # Fetch user details from Telegram
+        target_user_chat = await context.bot.get_chat(target_user_id)
+        target_username = target_user_chat.username or None
+        target_first_name = target_user_chat.first_name or "Unknown"
+        target_display_name = f"@{target_username}" if target_username else target_first_name
 
-    # Get the username for the forward list if available
-    target_user_username = context.bot.get_chat(target_user_id).username or "Unknown"
-    FORWARD_LIST[target_user_username] = target_user_id
+        # Authorize the user and add them to the forward list
+        AUTHORIZED_USERS.add(target_user_id)
+        FORWARD_LIST[target_user_id] = target_display_name  # Use user ID as the key
 
-    await update.message.reply_text(f"✅ User ID {target_user_id} has been authorized.")
-    logger.info(f"Admin @{username} (ID: {admin_id}) authorized user {target_user_id}.")
+        await update.message.reply_text(f"✅ {target_display_name} (ID: {target_user_id}) has been authorized.")
+        logger.info(f"Admin @{admin_username} (ID: {admin_id}) authorized user {target_display_name} (ID: {target_user_id}).")
+    except Exception as e:
+        # Log errors to a log file
+        logger.error(f"Failed to authorize user ID {target_user_id}: {e}")
+        await update.message.reply_text(f"❌ Failed to authorize user ID {target_user_id}. Error logged.")
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -192,7 +201,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Welcome! Your access request has been sent to the admins for verification."
     )
-    await authorize_user(update, context)
     logger.info(f"Verification request for {full_name} (@{username}, ID: {user_id}) sent to admins.")
 
 # Load forward list from file
